@@ -36,7 +36,6 @@ yarn-error.log*
 # vercel
 .vercel
 
-
 # typescript
 *.tsbuildinfo
 next-env.d.ts
@@ -50,5 +49,14 @@ test
 prompt
 
 server.log
-# Skills directory
+
+# Sandbox/development files not needed for Vercel
 /skills/
+/mini-services/
+/examples/
+/.zscripts/
+/download/
+/db/
+/Caddyfile
+/worklog.md
+/upload/
