@@ -1,66 +1,52 @@
 'use client'
 
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 
-// Slide data
-const SLIDES = [
-  {
-    id: 0,
-    type: 'cover',
-  },
-  {
-    id: 1,
-    type: 'what',
-  },
-  {
-    id: 2,
-    type: 'mission',
-  },
-  {
-    id: 3,
-    type: 'vision',
-  },
-  {
-    id: 4,
-    type: 'values',
-  },
-  {
-    id: 5,
-    type: 'orgchart',
-  },
-  {
-    id: 6,
-    type: 'structure',
-  },
-  {
-    id: 7,
-    type: 'closing',
-  },
-]
+const TOTAL_SLIDES = 8
 
 export default function Home() {
   const [currentSlide, setCurrentSlide] = useState(0)
-  const [isAnimating, setIsAnimating] = useState(false)
-  const particles = useMemo(() =>
-    Array.from({ length: 30 }, (_, i) => ({
-      id: i,
-      x: Math.random() * 100,
-      y: Math.random() * 100,
-      size: Math.random() * 4 + 2,
-      delay: Math.random() * 5,
-    }))
-  , [])
+  const [slideState, setSlideState] = useState<'visible' | 'exiting' | 'entering'>('visible')
+  const isTransitioning = useRef(false)
+
+  const particles = useMemo(
+    () =>
+      Array.from({ length: 30 }, (_, i) => ({
+        id: i,
+        x: Math.random() * 100,
+        y: Math.random() * 100,
+        size: Math.random() * 4 + 2,
+        delay: Math.random() * 5,
+      })),
+    []
+  )
 
   const goToSlide = useCallback(
     (index: number) => {
-      if (isAnimating || index === currentSlide || index < 0 || index >= SLIDES.length) return
-      setIsAnimating(true)
+      if (isTransitioning.current) return
+      if (index === currentSlide || index < 0 || index >= TOTAL_SLIDES) return
+
+      isTransitioning.current = true
+      setSlideState('exiting')
+
+      // Wait for exit animation, then switch slide
       setTimeout(() => {
         setCurrentSlide(index)
-        setTimeout(() => setIsAnimating(false), 600)
-      }, 100)
+        setSlideState('entering')
+
+        // Small delay for entering animation
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            setSlideState('visible')
+            // Unlock transitions after enter animation completes
+            setTimeout(() => {
+              isTransitioning.current = false
+            }, 500)
+          })
+        })
+      }, 350)
     },
-    [currentSlide, isAnimating]
+    [currentSlide]
   )
 
   const nextSlide = useCallback(() => goToSlide(currentSlide + 1), [currentSlide, goToSlide])
@@ -80,8 +66,30 @@ export default function Home() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [nextSlide, prevSlide])
 
+  // Touch/swipe support
+  const touchStart = useRef<number | null>(null)
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    touchStart.current = e.touches[0].clientX
+  }, [])
+  const handleTouchEnd = useCallback(
+    (e: React.TouchEvent) => {
+      if (touchStart.current === null) return
+      const diff = touchStart.current - e.changedTouches[0].clientX
+      if (Math.abs(diff) > 60) {
+        if (diff > 0) nextSlide()
+        else prevSlide()
+      }
+      touchStart.current = null
+    },
+    [nextSlide, prevSlide]
+  )
+
   return (
-    <div className="presentation-container">
+    <div
+      className="presentation-container"
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+    >
       {/* Animated background */}
       <div className="bg-gradient">
         <div className="gradient-orb orb-1" />
@@ -110,28 +118,20 @@ export default function Home() {
       <div className="slide-counter">
         <span className="counter-current">{String(currentSlide + 1).padStart(2, '0')}</span>
         <span className="counter-separator">/</span>
-        <span className="counter-total">{String(SLIDES.length).padStart(2, '0')}</span>
+        <span className="counter-total">{String(TOTAL_SLIDES).padStart(2, '0')}</span>
       </div>
 
       {/* Progress bar */}
       <div className="progress-bar-container">
         <div
           className="progress-bar-fill"
-          style={{ width: `${((currentSlide + 1) / SLIDES.length) * 100}%` }}
+          style={{ width: `${((currentSlide + 1) / TOTAL_SLIDES) * 100}%` }}
         />
       </div>
 
       {/* Main slide area */}
       <div className="slide-viewport">
-        <div
-          className="slide-content"
-          style={{
-            animation: isAnimating
-              ? 'none'
-              : 'slideIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards',
-          }}
-          key={currentSlide}
-        >
+        <div className={`slide-content slide-${slideState}`}>
           {currentSlide === 0 && <CoverSlide onNext={nextSlide} />}
           {currentSlide === 1 && <WhatSlide />}
           {currentSlide === 2 && <MissionSlide />}
@@ -157,7 +157,7 @@ export default function Home() {
         </button>
 
         <div className="nav-dots">
-          {SLIDES.map((_, i) => (
+          {Array.from({ length: TOTAL_SLIDES }, (_, i) => (
             <button
               key={i}
               className={`nav-dot ${i === currentSlide ? 'active' : ''} ${i < currentSlide ? 'visited' : ''}`}
@@ -170,7 +170,7 @@ export default function Home() {
         <button
           className="nav-btn"
           onClick={nextSlide}
-          disabled={currentSlide === SLIDES.length - 1}
+          disabled={currentSlide === TOTAL_SLIDES - 1}
           aria-label="Siguiente diapositiva"
         >
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -317,7 +317,7 @@ export default function Home() {
         .progress-bar-fill {
           height: 100%;
           background: linear-gradient(90deg, #0d9488, #5eead4);
-          transition: width 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+          transition: width 0.5s cubic-bezier(0.16, 1, 0.3, 1);
           border-radius: 0 2px 2px 0;
           box-shadow: 0 0 10px rgba(94, 234, 212, 0.5);
         }
@@ -334,6 +334,7 @@ export default function Home() {
           padding: 2rem;
         }
 
+        /* ========== SMOOTH SLIDE TRANSITIONS ========== */
         .slide-content {
           width: 100%;
           max-width: 1100px;
@@ -341,20 +342,37 @@ export default function Home() {
           display: flex;
           flex-direction: column;
           justify-content: center;
+          will-change: transform, opacity;
+          transform: translateZ(0);
+          backface-visibility: hidden;
+
+          /* Default: visible state */
+          opacity: 1;
+          transform: translateY(0) scale(1);
+          transition: opacity 0.35s cubic-bezier(0.4, 0, 0.2, 1),
+                      transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
-        @keyframes slideIn {
-          0% {
-            opacity: 0;
-            transform: translateY(30px) scale(0.97);
-          }
-          100% {
-            opacity: 1;
-            transform: translateY(0) scale(1);
-          }
+        /* Exiting: fade out + slight scale down */
+        .slide-exiting {
+          opacity: 0;
+          transform: translateY(-16px) scale(0.98);
         }
 
-        /* Navigation */
+        /* Entering: starts invisible, will transition to visible */
+        .slide-entering {
+          opacity: 0;
+          transform: translateY(16px) scale(0.98);
+        }
+
+        /* Visible: full opacity and position */
+        .slide-visible {
+          opacity: 1;
+          transform: translateY(0) scale(1);
+        }
+
+        /* ========== NAVIGATION ========== */
+
         .nav-controls {
           position: fixed;
           bottom: 2rem;
@@ -427,31 +445,25 @@ export default function Home() {
           transform: scale(1.3);
         }
 
-        /* ==================== SLIDE STYLES ==================== */
+        /* ========== ANIMATIONS ========== */
 
-        /* Shared animations */
         @keyframes fadeInUp {
-          from { opacity: 0; transform: translateY(40px); }
+          from { opacity: 0; transform: translateY(30px); }
           to { opacity: 1; transform: translateY(0); }
         }
 
         @keyframes fadeInDown {
-          from { opacity: 0; transform: translateY(-30px); }
+          from { opacity: 0; transform: translateY(-20px); }
           to { opacity: 1; transform: translateY(0); }
         }
 
         @keyframes fadeInLeft {
-          from { opacity: 0; transform: translateX(-40px); }
-          to { opacity: 1; transform: translateX(0); }
-        }
-
-        @keyframes fadeInRight {
-          from { opacity: 0; transform: translateX(40px); }
+          from { opacity: 0; transform: translateX(-30px); }
           to { opacity: 1; transform: translateX(0); }
         }
 
         @keyframes scaleIn {
-          from { opacity: 0; transform: scale(0.8); }
+          from { opacity: 0; transform: scale(0.85); }
           to { opacity: 1; transform: scale(1); }
         }
 
@@ -460,30 +472,12 @@ export default function Home() {
           50% { transform: scale(1.05); }
         }
 
-        @keyframes shimmer {
-          0% { background-position: -200% center; }
-          100% { background-position: 200% center; }
-        }
-
-        @keyframes rotate360 {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
-        }
-
         @keyframes breathe {
           0%, 100% { opacity: 0.6; transform: scale(1); }
           50% { opacity: 1; transform: scale(1.02); }
         }
 
-        @keyframes drawLine {
-          from { stroke-dashoffset: 1000; }
-          to { stroke-dashoffset: 0; }
-        }
-
-        @keyframes borderGlow {
-          0%, 100% { box-shadow: 0 0 5px rgba(94, 234, 212, 0.1); }
-          50% { box-shadow: 0 0 20px rgba(94, 234, 212, 0.3); }
-        }
+        /* ========== SHARED SLIDE ELEMENTS ========== */
 
         .slide-tag {
           display: inline-flex;
@@ -498,16 +492,15 @@ export default function Home() {
           color: #5eead4;
           text-transform: uppercase;
           letter-spacing: 0.1em;
-          animation: fadeInDown 0.6s ease forwards;
+          animation: fadeInDown 0.5s ease both;
         }
 
         .slide-title {
           font-family: 'Playfair Display', serif;
           font-weight: 800;
           line-height: 1.1;
-          animation: fadeInUp 0.8s ease forwards;
-          animation-delay: 0.15s;
-          opacity: 0;
+          animation: fadeInUp 0.6s ease both;
+          animation-delay: 0.08s;
         }
 
         .slide-subtitle {
@@ -515,9 +508,8 @@ export default function Home() {
           color: rgba(255,255,255,0.6);
           font-weight: 300;
           line-height: 1.7;
-          animation: fadeInUp 0.8s ease forwards;
-          animation-delay: 0.3s;
-          opacity: 0;
+          animation: fadeInUp 0.6s ease both;
+          animation-delay: 0.16s;
         }
 
         .glass-card {
@@ -526,7 +518,7 @@ export default function Home() {
           border: 1px solid rgba(255,255,255,0.08);
           border-radius: 1rem;
           padding: 1.5rem;
-          transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+          transition: background 0.3s ease, border-color 0.3s ease, transform 0.3s ease, box-shadow 0.3s ease;
         }
 
         .glass-card:hover {
@@ -547,7 +539,8 @@ export default function Home() {
           flex-shrink: 0;
         }
 
-        /* COVER SLIDE */
+        /* ========== COVER SLIDE ========== */
+
         .cover-slide {
           display: flex;
           flex-direction: column;
@@ -562,7 +555,7 @@ export default function Home() {
           border-radius: 50%;
           object-fit: cover;
           border: 3px solid rgba(94, 234, 212, 0.3);
-          animation: scaleIn 1s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+          animation: scaleIn 0.8s cubic-bezier(0.16, 1, 0.3, 1) both;
           box-shadow: 0 0 40px rgba(94, 234, 212, 0.2);
         }
 
@@ -571,9 +564,8 @@ export default function Home() {
           font-size: clamp(2.5rem, 6vw, 4.5rem);
           font-weight: 900;
           line-height: 1.05;
-          animation: fadeInUp 1s ease forwards;
-          animation-delay: 0.3s;
-          opacity: 0;
+          animation: fadeInUp 0.7s ease both;
+          animation-delay: 0.15s;
         }
 
         .cover-title .highlight {
@@ -588,18 +580,16 @@ export default function Home() {
           color: rgba(255,255,255,0.5);
           font-weight: 300;
           font-style: italic;
-          animation: fadeInUp 1s ease forwards;
-          animation-delay: 0.5s;
-          opacity: 0;
+          animation: fadeInUp 0.7s ease both;
+          animation-delay: 0.25s;
           letter-spacing: 0.05em;
         }
 
         .cover-decoration {
           display: flex;
           gap: 0.5rem;
-          animation: fadeInUp 1s ease forwards;
-          animation-delay: 0.7s;
-          opacity: 0;
+          animation: fadeInUp 0.7s ease both;
+          animation-delay: 0.35s;
         }
 
         .cover-decoration span {
@@ -615,9 +605,8 @@ export default function Home() {
 
         .cover-start {
           margin-top: 1rem;
-          animation: fadeInUp 1s ease forwards;
-          animation-delay: 0.9s;
-          opacity: 0;
+          animation: fadeInUp 0.7s ease both;
+          animation-delay: 0.45s;
         }
 
         .cover-start-btn {
@@ -641,7 +630,8 @@ export default function Home() {
           box-shadow: 0 4px 20px rgba(94, 234, 212, 0.2);
         }
 
-        /* WHAT SLIDE */
+        /* ========== WHAT SLIDE ========== */
+
         .what-grid {
           display: grid;
           grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -650,14 +640,15 @@ export default function Home() {
         }
 
         .what-card {
-          animation: fadeInUp 0.7s ease forwards;
-          opacity: 0;
+          animation: fadeInUp 0.5s ease both;
         }
 
-        .what-card:nth-child(1) { animation-delay: 0.3s; }
-        .what-card:nth-child(2) { animation-delay: 0.45s; }
-        .what-card:nth-child(3) { animation-delay: 0.6s; }
-        .what-card:nth-child(4) { animation-delay: 0.75s; }
+        .what-card:nth-child(1) { animation-delay: 0.1s; }
+        .what-card:nth-child(2) { animation-delay: 0.15s; }
+        .what-card:nth-child(3) { animation-delay: 0.2s; }
+        .what-card:nth-child(4) { animation-delay: 0.25s; }
+        .what-card:nth-child(5) { animation-delay: 0.3s; }
+        .what-card:nth-child(6) { animation-delay: 0.35s; }
 
         .what-card .icon-circle {
           background: linear-gradient(135deg, rgba(94, 234, 212, 0.15), rgba(13, 148, 136, 0.15));
@@ -677,7 +668,8 @@ export default function Home() {
           line-height: 1.6;
         }
 
-        /* MISSION SLIDE */
+        /* ========== MISSION SLIDE ========== */
+
         .mission-content {
           display: flex;
           flex-direction: column;
@@ -689,13 +681,12 @@ export default function Home() {
           display: flex;
           gap: 1.25rem;
           align-items: flex-start;
-          animation: fadeInLeft 0.7s ease forwards;
-          opacity: 0;
+          animation: fadeInLeft 0.5s ease both;
         }
 
-        .mission-point:nth-child(1) { animation-delay: 0.3s; }
-        .mission-point:nth-child(2) { animation-delay: 0.5s; }
-        .mission-point:nth-child(3) { animation-delay: 0.7s; }
+        .mission-point:nth-child(1) { animation-delay: 0.1s; }
+        .mission-point:nth-child(2) { animation-delay: 0.2s; }
+        .mission-point:nth-child(3) { animation-delay: 0.3s; }
 
         .mission-icon {
           width: 52px;
@@ -723,7 +714,8 @@ export default function Home() {
           line-height: 1.7;
         }
 
-        /* VISION SLIDE */
+        /* ========== VISION SLIDE ========== */
+
         .vision-center {
           display: flex;
           flex-direction: column;
@@ -737,13 +729,12 @@ export default function Home() {
           position: relative;
           max-width: 700px;
           padding: 2.5rem;
-          animation: scaleIn 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-          animation-delay: 0.3s;
-          opacity: 0;
+          animation: scaleIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+          animation-delay: 0.1s;
         }
 
         .vision-quote::before {
-          content: '"';
+          content: '\u201C';
           position: absolute;
           top: -0.5rem;
           left: 0;
@@ -767,9 +758,8 @@ export default function Home() {
           gap: 1.5rem;
           flex-wrap: wrap;
           justify-content: center;
-          animation: fadeInUp 0.7s ease forwards;
-          animation-delay: 0.6s;
-          opacity: 0;
+          animation: fadeInUp 0.5s ease both;
+          animation-delay: 0.25s;
         }
 
         .vision-pillar {
@@ -795,7 +785,8 @@ export default function Home() {
           font-size: 1.1rem;
         }
 
-        /* VALUES SLIDE */
+        /* ========== VALUES SLIDE ========== */
+
         .values-grid {
           display: grid;
           grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -806,15 +797,14 @@ export default function Home() {
         .value-card {
           text-align: center;
           padding: 2rem 1.25rem;
-          animation: scaleIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-          opacity: 0;
+          animation: scaleIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
         }
 
-        .value-card:nth-child(1) { animation-delay: 0.2s; }
-        .value-card:nth-child(2) { animation-delay: 0.35s; }
-        .value-card:nth-child(3) { animation-delay: 0.5s; }
-        .value-card:nth-child(4) { animation-delay: 0.65s; }
-        .value-card:nth-child(5) { animation-delay: 0.8s; }
+        .value-card:nth-child(1) { animation-delay: 0.1s; }
+        .value-card:nth-child(2) { animation-delay: 0.15s; }
+        .value-card:nth-child(3) { animation-delay: 0.2s; }
+        .value-card:nth-child(4) { animation-delay: 0.25s; }
+        .value-card:nth-child(5) { animation-delay: 0.3s; }
 
         .value-emoji {
           font-size: 2.5rem;
@@ -836,7 +826,8 @@ export default function Home() {
           line-height: 1.5;
         }
 
-        /* ORG CHART SLIDE */
+        /* ========== ORG CHART SLIDE ========== */
+
         .orgchart-container {
           display: flex;
           flex-direction: column;
@@ -850,21 +841,20 @@ export default function Home() {
           justify-content: center;
           gap: 1.5rem;
           position: relative;
-          animation: fadeInUp 0.6s ease forwards;
-          opacity: 0;
+          animation: fadeInUp 0.5s ease both;
         }
 
-        .org-level:nth-child(1) { animation-delay: 0.3s; }
-        .org-level:nth-child(2) { animation-delay: 0.5s; }
-        .org-level:nth-child(3) { animation-delay: 0.7s; }
-        .org-level:nth-child(4) { animation-delay: 0.9s; }
+        .org-level:nth-child(1) { animation-delay: 0.1s; }
+        .org-level:nth-child(2) { animation-delay: 0.2s; }
+        .org-level:nth-child(3) { animation-delay: 0.3s; }
+        .org-level:nth-child(4) { animation-delay: 0.4s; }
 
         .org-node {
           padding: 1rem 1.5rem;
           border-radius: 0.75rem;
           text-align: center;
           min-width: 160px;
-          transition: all 0.3s ease;
+          transition: transform 0.3s ease;
         }
 
         .org-node:hover {
@@ -900,30 +890,21 @@ export default function Home() {
           height: 25px;
           background: linear-gradient(180deg, rgba(94, 234, 212, 0.4), rgba(94, 234, 212, 0.1));
           margin: 0 auto;
-          animation: fadeInUp 0.4s ease forwards;
-          opacity: 0;
+          animation: fadeInUp 0.4s ease both;
         }
 
-        .org-connector:nth-child(2) { animation-delay: 0.4s; }
-        .org-connector:nth-child(4) { animation-delay: 0.6s; }
+        .org-connector:nth-child(2) { animation-delay: 0.15s; }
+        .org-connector:nth-child(4) { animation-delay: 0.25s; }
 
-        .org-hline {
-          position: relative;
-          width: 300px;
-          height: 2px;
-          background: linear-gradient(90deg, transparent, rgba(94, 234, 212, 0.3), transparent);
-          margin: 0 auto;
-        }
+        /* ========== STRUCTURE SLIDE ========== */
 
-        /* STRUCTURE SLIDE */
         .structure-tabs {
           display: flex;
           gap: 0.5rem;
           margin-top: 2rem;
           margin-bottom: 1.5rem;
-          animation: fadeInUp 0.6s ease forwards;
-          animation-delay: 0.3s;
-          opacity: 0;
+          animation: fadeInUp 0.5s ease both;
+          animation-delay: 0.1s;
         }
 
         .structure-tab {
@@ -951,9 +932,8 @@ export default function Home() {
         }
 
         .structure-content {
-          animation: fadeInUp 0.5s ease forwards;
-          animation-delay: 0.5s;
-          opacity: 0;
+          animation: fadeInUp 0.4s ease both;
+          animation-delay: 0.15s;
         }
 
         .structure-list {
@@ -1003,7 +983,8 @@ export default function Home() {
           line-height: 1.4;
         }
 
-        /* CLOSING SLIDE */
+        /* ========== CLOSING SLIDE ========== */
+
         .closing-slide {
           display: flex;
           flex-direction: column;
@@ -1021,9 +1002,8 @@ export default function Home() {
           font-family: 'Playfair Display', serif;
           font-size: clamp(2rem, 5vw, 3.5rem);
           font-weight: 800;
-          animation: fadeInUp 0.8s ease forwards;
-          animation-delay: 0.3s;
-          opacity: 0;
+          animation: fadeInUp 0.6s ease both;
+          animation-delay: 0.1s;
         }
 
         .closing-title .highlight {
@@ -1034,9 +1014,8 @@ export default function Home() {
         }
 
         .closing-info {
-          animation: fadeInUp 0.8s ease forwards;
-          animation-delay: 0.5s;
-          opacity: 0;
+          animation: fadeInUp 0.6s ease both;
+          animation-delay: 0.2s;
         }
 
         .closing-info-item {
@@ -1058,17 +1037,15 @@ export default function Home() {
           color: #5eead4;
           font-weight: 600;
           letter-spacing: 0.05em;
-          animation: fadeInUp 0.8s ease forwards;
-          animation-delay: 0.7s;
-          opacity: 0;
+          animation: fadeInUp 0.6s ease both;
+          animation-delay: 0.3s;
         }
 
         .closing-dots {
           display: flex;
           gap: 0.5rem;
-          animation: fadeInUp 0.8s ease forwards;
-          animation-delay: 0.9s;
-          opacity: 0;
+          animation: fadeInUp 0.6s ease both;
+          animation-delay: 0.4s;
         }
 
         .closing-dots span {
@@ -1082,7 +1059,8 @@ export default function Home() {
         .closing-dots span:nth-child(2) { animation-delay: 0.5s; }
         .closing-dots span:nth-child(3) { animation-delay: 1s; }
 
-        /* Responsive */
+        /* ========== RESPONSIVE ========== */
+
         @media (max-width: 768px) {
           .slide-content {
             padding: 1rem;
@@ -1168,36 +1146,12 @@ function CoverSlide({ onNext }: { onNext: () => void }) {
 
 function WhatSlide() {
   const services = [
-    {
-      icon: '🧠',
-      title: 'Psicología Clínica',
-      desc: 'Diversos enfoques terapéuticos para abordar las necesidades emocionales y conductuales de niños, adolescentes y adultos.',
-    },
-    {
-      icon: '✋',
-      title: 'Terapia Ocupacional',
-      desc: 'Rehabilitación y desarrollo de habilidades funcionales para la integración plena en la vida diaria.',
-    },
-    {
-      icon: '📚',
-      title: 'Psicopedagogía',
-      desc: 'Evaluación e intervención en dificultades de aprendizaje, potenciando las capacidades académicas.',
-    },
-    {
-      icon: '👨‍👩‍👧‍👦',
-      title: 'Orientación Familiar',
-      desc: 'Acompañamiento a las familias con estrategias de regulación emocional y crianza respetuosa.',
-    },
-    {
-      icon: '💊',
-      title: 'Psiquiatría',
-      desc: 'Atención médica especializada en salud mental con diagnóstico y tratamiento integral.',
-    },
-    {
-      icon: '🗣️',
-      title: 'Terapia del Lenguaje',
-      desc: 'Intervención en trastornos de la comunicación y lenguaje para un desarrollo óptimo.',
-    },
+    { icon: '🧠', title: 'Psicología Clínica', desc: 'Diversos enfoques terapéuticos para abordar las necesidades emocionales y conductuales de niños, adolescentes y adultos.' },
+    { icon: '✋', title: 'Terapia Ocupacional', desc: 'Rehabilitación y desarrollo de habilidades funcionales para la integración plena en la vida diaria.' },
+    { icon: '📚', title: 'Psicopedagogía', desc: 'Evaluación e intervención en dificultades de aprendizaje, potenciando las capacidades académicas.' },
+    { icon: '👨‍👩‍👧‍👦', title: 'Orientación Familiar', desc: 'Acompañamiento a las familias con estrategias de regulación emocional y crianza respetuosa.' },
+    { icon: '💊', title: 'Psiquiatría', desc: 'Atención médica especializada en salud mental con diagnóstico y tratamiento integral.' },
+    { icon: '🗣️', title: 'Terapia del Lenguaje', desc: 'Intervención en trastornos de la comunicación y lenguaje para un desarrollo óptimo.' },
   ]
 
   return (
@@ -1225,21 +1179,9 @@ function WhatSlide() {
 
 function MissionSlide() {
   const points = [
-    {
-      icon: '⭐',
-      title: 'Atención Integral',
-      text: 'Brindar atención en diversas áreas, enfocada en el abordaje integral de niños, adolescentes y adultos.',
-    },
-    {
-      icon: '👥',
-      title: 'Orientación Clínica',
-      text: 'Ofreciendo a las familias, instituciones y población en general la orientación clínica, tanto en prevención como rehabilitación; promoviendo la importancia de la interconsulta como herramienta para lograr una intervención eficaz.',
-    },
-    {
-      icon: '👏',
-      title: 'Inclusión y Desarrollo',
-      text: 'Generando instancias y oportunidades de inclusión y desarrollo humano pleno.',
-    },
+    { icon: '⭐', title: 'Atención Integral', text: 'Brindar atención en diversas áreas, enfocada en el abordaje integral de niños, adolescentes y adultos.' },
+    { icon: '👥', title: 'Orientación Clínica', text: 'Ofreciendo a las familias, instituciones y población en general la orientación clínica, tanto en prevención como rehabilitación; promoviendo la importancia de la interconsulta como herramienta para lograr una intervención eficaz.' },
+    { icon: '👏', title: 'Inclusión y Desarrollo', text: 'Generando instancias y oportunidades de inclusión y desarrollo humano pleno.' },
   ]
 
   return (
@@ -1283,21 +1225,11 @@ function VisionSlide() {
           </p>
         </div>
         <div className="vision-pillars">
-          <div className="vision-pillar">
-            <span>🌍</span> Referencia regional
-          </div>
-          <div className="vision-pillar">
-            <span>🤝</span> Enfoque interdisciplinario
-          </div>
-          <div className="vision-pillar">
-            <span>💚</span> Compromiso humano
-          </div>
-          <div className="vision-pillar">
-            <span>✨</span> Inclusión social
-          </div>
-          <div className="vision-pillar">
-            <span>🌱</span> Desarrollo pleno
-          </div>
+          <div className="vision-pillar"><span>🌍</span> Referencia regional</div>
+          <div className="vision-pillar"><span>🤝</span> Enfoque interdisciplinario</div>
+          <div className="vision-pillar"><span>💚</span> Compromiso humano</div>
+          <div className="vision-pillar"><span>✨</span> Inclusión social</div>
+          <div className="vision-pillar"><span>🌱</span> Desarrollo pleno</div>
         </div>
       </div>
     </div>
@@ -1449,19 +1381,13 @@ function ClosingSlide() {
       <h2 className="closing-title">
         ¡<span className="highlight">Gracias</span>!
       </h2>
-      <p style={{ fontSize: '1.1rem', color: 'rgba(255,255,255,0.6)', fontWeight: 300, animation: 'fadeInUp 0.8s ease forwards', animationDelay: '0.4s', opacity: 0 }}>
+      <p style={{ fontSize: '1.1rem', color: 'rgba(255,255,255,0.6)', fontWeight: 300, animation: 'fadeInUp 0.6s ease both', animationDelay: '0.15s' }}>
         Centro de Atención Kavac
       </p>
       <div className="closing-info">
-        <div className="closing-info-item">
-          <span>📍</span> Los Colorados, Valencia, Estado Carabobo
-        </div>
-        <div className="closing-info-item">
-          <span>🏫</span> Desde el corazón de la UE Kavac
-        </div>
-        <div className="closing-info-item">
-          <span>📱</span> @centrokavac
-        </div>
+        <div className="closing-info-item"><span>📍</span> Los Colorados, Valencia, Estado Carabobo</div>
+        <div className="closing-info-item"><span>🏫</span> Desde el corazón de la UE Kavac</div>
+        <div className="closing-info-item"><span>📱</span> @centrokavac</div>
       </div>
       <div className="closing-hashtag">#UnEspacioParaCrecer</div>
       <div className="closing-dots">
